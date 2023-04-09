@@ -31,12 +31,13 @@ import net.minestom.server.utils.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static net.minestom.arena.config.ConfigHandler.CONFIG;
 
-final class Main {
+public class Main {
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
     public static void main(String[] args) {
@@ -151,7 +152,7 @@ final class Main {
             if (CONFIG.server().mojangAuth()) MojangAuth.init();
         }
 
-        minecraftServer.start(CONFIG.server().address());
+        minecraftServer.start(new InetSocketAddress(CONFIG.server().host(), Integer.parseInt(System.getProperty("service.bind.port", String.valueOf(CONFIG.server().port())))));
         System.out.println("Server startup done! Using configuration " + CONFIG);
     }
 }

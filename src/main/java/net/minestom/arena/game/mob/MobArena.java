@@ -50,9 +50,12 @@ import net.minestom.server.utils.time.TimeUnit;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jglrxavpok.hephaistos.nbt.NBT;
 
+import java.awt.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -77,6 +80,10 @@ public final class MobArena implements SingleInstanceArena {
             .displayName(Component.text("Wand"))
             .build());
 
+    private static final ItemStack GUN = ItemUtils.stripItalics(ItemStack.builder(Material.IRON_HOE)
+            .displayName(Component.text("Gun"))
+            .build());
+
     private static final ArenaClass KNIGHT_CLASS = new ArenaClass("Knight", "Starter class with mediocre attack and defense.",
             Icons.SWORD, TextColor.color(0xbebebe), Material.STONE_SWORD,
             new Kit(List.of(ItemStack.of(Material.STONE_SWORD).withTag(MELEE_TAG, 2)),
@@ -98,6 +105,17 @@ public final class MobArena implements SingleInstanceArena {
                                     EquipmentSlot.LEGGINGS, ItemStack.of(Material.CHAINMAIL_LEGGINGS).withTag(ARMOR_TAG, 3),
                                     EquipmentSlot.BOOTS, ItemStack.of(Material.IRON_BOOTS).withTag(ARMOR_TAG, 1))),
                     15),
+            new ArenaClass("The Vengeful One", "Very beefy, helps your teammates safely deal damage.",
+                    Icons.SHIELD, TextColor.color(0x000000), Material.IRON_HOE,
+                    new Kit(List.of(GUN, ItemStack.of(Material.IRON_SWORD).withTag(MELEE_TAG, 3)),
+                            Map.of(EquipmentSlot.HELMET, ItemStack.of(Material.LEATHER_HELMET).withTag(ARMOR_TAG, 2).withMeta(bu -> bu.setTag(Tag.NBT("display"), NBT.Compound(bui -> bui.put("color", NBT.Int(new Color(0, 0, 0).getRGB()))))),
+
+                                    EquipmentSlot.CHESTPLATE, ItemStack.of(Material.LEATHER_CHESTPLATE).withTag(ARMOR_TAG, 4).withMeta(bu -> bu.setTag(Tag.NBT("display"), NBT.Compound(bui -> bui.put("color", NBT.Int(new Color(0, 0, 0).getRGB()))))),
+
+                                    EquipmentSlot.LEGGINGS, ItemStack.of(Material.LEATHER_LEGGINGS).withTag(ARMOR_TAG, 3).withMeta(bu -> bu.setTag(Tag.NBT("display"), NBT.Compound(bui -> bui.put("color", NBT.Int(new Color(0, 0, 0).getRGB()))))),
+
+                                    EquipmentSlot.BOOTS, ItemStack.of(Material.LEATHER_BOOTS).withTag(ARMOR_TAG, 1).withMeta(bu -> bu.setTag(Tag.NBT("display"), NBT.Compound(bui -> bui.put("color", NBT.Int(new Color(0, 0, 0).getRGB()))))))),
+                    128),
             new ArenaClass("Mage", "Fight enemies from far away using your long ranged magic missiles.",
                     Icons.POTION, TextColor.color(0x3cbea5), Material.BLAZE_ROD,
                     new Kit(List.of(WAND),
@@ -119,7 +137,7 @@ public final class MobArena implements SingleInstanceArena {
     private static final UUID COMBAT_TRAINING_UUID = new UUID(24539786, 23945687);
 
     public static final List<ArenaUpgrade> UPGRADES = List.of(
-            new ArenaUpgrade("Improved Healthcare", "Increases max health by two heart.",
+            new ArenaUpgrade("Improved Healthcare", "Increases max health by two hearts per level, and healing by one heart if you have the upgrade.",
                     TextColor.color(0x63ff52), Material.POTION, (player, count) -> {
                         final AttributeModifier modifier = new AttributeModifier(
                                 HEALTHCARE_UUID, "mobarena-healthcare", 4 * count,
@@ -135,7 +153,7 @@ public final class MobArena implements SingleInstanceArena {
                             attribute.removeModifier(modifier);
                         }
                         player.heal();
-                    }, level -> "Currently gives " + level * 2 + " extra hearts",
+                    }, level -> "Currently gives " + level * 2 + " extra hearts" + (level > 0 ? " and heals an extra heart" : ""),
                     10, 1.3f, 5),
             new ArenaUpgrade("Combat Training", "All physical attacks deal 10% more damage",
                     TextColor.color(0xff5c3c), Material.IRON_SWORD, (player, count) -> {
@@ -450,7 +468,7 @@ public final class MobArena implements SingleInstanceArena {
         }
 
         for (Player member : group.members()) {
-            member.setHealth(member.getHealth() + 4); // Heal 2 hearts
+            member.setHealth(member.getHealth() + (getUpgrade(UPGRADES.get(0)) > 0 ? 6 : 4)); // Heal 2 hearts + 1 heart if you have improved healthcare
             playerClass(member).apply(member);
         }
 
@@ -616,7 +634,45 @@ public final class MobArena implements SingleInstanceArena {
 
                         return TaskSchedule.tick(1);
                     });
-                }, 1500)
+                }, 1500),
+                Features.functionalItem(
+                        // Normally you'd use a.isSimilar(b) but the tags are very much different on these items
+                        item -> GUN.material() == item.material() && GUN.getDisplayName().equals(item.getDisplayName()),
+                        player -> {
+                            final Instance instance = player.getInstance();
+                            final AtomicReference<Pos> atomicPos = new AtomicReference<>(player.getPosition().add(0, player.getEyeHeight(), 0));
+                            final AtomicInteger atomicAge = new AtomicInteger();
+                            final Pos playerEyes = player.getPosition().add(0, player.getEyeHeight(), 0);
+                            instance.playSound(
+                                    Sound.sound(SoundEvent.ENTITY_GENERIC_EXPLODE, Sound.Source.NEUTRAL, 1, 1),
+                                    playerEyes.x(), playerEyes.y(), playerEyes.z()
+                            );
+
+                            for(int i = 0; i <= 60; i++){
+                                final Pos pos = atomicPos.getAndUpdate(p -> p.withLookAt(playerEyes.add(playerEyes.direction().mul(60)))
+                                        .add(p.direction()));
+
+                                List<Entity> list = instance.getEntities().stream().filter(entity -> entity.getPosition().sub(pos).add(0, entity.getEyeHeight(), 0).asVec().length()<=1).toList();
+                                if(!instance.getBlock(pos).isAir() || !instance.getWorldBorder().isInside(pos)){
+                                    continue;
+                                }
+                                for(Entity e : list){
+                                    if(e instanceof LivingEntity && !(e instanceof Player) && !((LivingEntity) e).isDead()){
+                                        ((LivingEntity)e).kill();
+                                        player.setHealth(Math.min(player.getHealth() + 1, player.getMaxHealth()));
+                                        instance.playSound(
+                                                Sound.sound(SoundEvent.ENTITY_GENERIC_DRINK, Sound.Source.NEUTRAL, 1, 1),
+                                                pos.x(), pos.y(), pos.z()
+                                        );
+                                    }
+                                }
+                                instance.sendGroupedPacket(ParticleCreator.createParticlePacket(
+                                        Particle.END_ROD, true, pos.x(), pos.y(), pos.z(),
+                                        0.0f, 0.0f, 0.0f, 0.01f, 1, null
+                                ));
+                            }
+
+                        }, 1500)
         ));
 
         if (hasOption(MAYHEM_OPTION)) {
